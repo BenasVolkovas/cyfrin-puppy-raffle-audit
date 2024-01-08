@@ -106,7 +106,7 @@ contract PuppyRaffle is ERC721, Ownable {
         // Check for duplicates
         // @audit-g add the players.length to memory variable
         // @audit-g assert that there are no duplicates before pushing to storage
-        // @audit-v DOS attack by calling this function with a lot of players
+        // @audit-v-f DOS attack by calling this function with a lot of players
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
                 require(
@@ -125,7 +125,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev This function will allow there to be blank spots in the array
     // @audit-i this should be external
     function refund(uint256 playerIndex) public {
-        // @audit-v no check for index out of bounds
+        // @audit-i no check for index out of bounds
         address playerAddress = players[playerIndex];
         require(
             playerAddress == msg.sender,
@@ -136,8 +136,7 @@ contract PuppyRaffle is ERC721, Ownable {
             "PuppyRaffle: Player already refunded, or is not active"
         );
 
-        // @audit-v SC should follow the checks-effects-interactions pattern.
-        // @audit-v We should update the address to zero first
+        // @audit-v-f reentrancy -> SC should follow the checks-effects-interactions pattern.
         payable(msg.sender).sendValue(entranceFee);
 
         players[playerIndex] = address(0);
@@ -192,6 +191,7 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
         // @audit-q should this increase or override the total fees?
+        // @audit-v overflow because of uint64
         totalFees = totalFees + uint64(fee);
 
         uint256 tokenId = totalSupply();

