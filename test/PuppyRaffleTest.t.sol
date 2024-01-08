@@ -13,6 +13,7 @@ contract PuppyRaffleTest is Test {
     address playerTwo = address(2);
     address playerThree = address(3);
     address playerFour = address(4);
+    address playerFive = address(5);
     address feeAddress = address(99);
     uint256 duration = 1 days;
 
@@ -269,5 +270,28 @@ contract PuppyRaffleTest is Test {
         console2.log("Ending PuppyRaffle balance: ", endingPuppyRaffleBalance);
 
         assertEq(endingAttackerContractBalance - entranceFee, startingPuppyRaffleBalance, "Attacker contract balance should be equal to starting PuppyRaffle balance");
+    }
+
+    function test_audit_selectWinner_TotalFeeVariableOverflows() public playersEntered {
+        skip(duration + 1 minutes);
+        puppyRaffle.selectWinner();
+
+        uint256 playersNum = 50;
+        address[] memory players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] = address(i + 1);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+
+        skip(duration + 1 minutes);
+        puppyRaffle.selectWinner();
+        uint256 startingTotalFees = puppyRaffle.totalFees();
+
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+        skip(duration + 1 minutes);
+        puppyRaffle.selectWinner();
+        uint256 endingTotalFees = puppyRaffle.totalFees();
+
+        assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
     }
 }
