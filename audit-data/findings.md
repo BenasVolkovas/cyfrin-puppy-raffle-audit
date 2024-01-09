@@ -245,6 +245,36 @@ Paste the following test into `PuppyRaffleTest.t.sol`
 
 Alternatively, you could use OpenZeppelin's [EnumerableSet](https://docs.openzeppelin.com/contracts/5.x/api/utils#EnumerableSet)
 
+# Low Severity
+
+### [L-1] `PuppyRaffle::getActivePlayerIndex` returns `0` for non-existent players, which is the same as the index for the first player in the `players` array, causing a player at the index `0` to incorrectly think they have not entered the raffle
+
+**Description:** If a player is in the `PuppyRaffle::players` array at index `0`, and they call the `PuppyRaffle::getActivePlayerIndex` function with their address, the function will return `0`. But additionally natspec comments state that the function returns `0` if the player is not in the `PuppyRaffle::players` array.
+
+```javascript
+    function getActivePlayerIndex(
+        address player
+    ) external view returns (uint256) {
+        for (uint256 i = 0; i < players.length; i++) {
+            if (players[i] == player) {
+                return i;
+            }
+        }
+
+@>      return 0;
+    }
+```
+
+**Impact:** A player at index `0` will incorrectly think they have not entered the raffle, and will attempt to enter the raffle again.
+
+**Proof of Concept:**
+
+1. User enters the raffle
+2. User calls `PuppyRaffle::getActivePlayerIndex` with their address
+3. User thinks they have not entered the raffle, and attempts to enter again
+
+**Recommended Mitigation:** The easiest option would be to revert if the player is not in the array insead of returning `0`. You could also reserve the 0th position.
+
 # Informational
 
 ### [I-1]: Solidity pragma should be specific, not wide
