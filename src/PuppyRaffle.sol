@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// @audit-i why so old solidity version?
+// @done @audit-i don' use the old version of solidity
+// @done @audit-i don't use the floating pragma version
 pragma solidity ^0.7.6;
 
 import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
@@ -19,17 +20,19 @@ import {Base64} from "lib/base64/base64.sol";
 contract PuppyRaffle is ERC721, Ownable {
     using Address for address payable;
 
-    // @audit-i use i_ prefix or capital letters for immutable variables
+    // @done @audit-i use i_ prefix or capital letters for immutable variables
+    // @done @audit-g make immutable
     uint256 public immutable entranceFee;
 
     address[] public players;
+    // @done @audit-g make immutable
     uint256 public raffleDuration;
     uint256 public raffleStartTime;
     address public previousWinner;
 
     // We do some storage packing to save gas
     address public feeAddress;
-    // @audit-g no need to initialize to zero since it's already zero
+    // @done @audit-g no need to initialize to zero since it's already zero
     uint64 public totalFees = 0;
 
     // mappings to keep track of token traits
@@ -38,21 +41,21 @@ contract PuppyRaffle is ERC721, Ownable {
     mapping(uint256 => string) public rarityToName;
 
     // Stats for the common puppy (pug)
-    // @audit-i why not make this a constant?
+    // @done @audit-i why not make this a constant?
     string private commonImageUri =
         "ipfs://QmSsYRx3LpDAb1GZQm7zZ1AuHZjfbPkD6J7s9r41xu1mf8";
     uint256 public constant COMMON_RARITY = 70;
     string private constant COMMON = "common";
 
     // Stats for the rare puppy (st. bernard)
-    // @audit-i why not make this a constant?
+    // @done @audit-i why not make this a constant?
     string private rareImageUri =
         "ipfs://QmUPjADFGEKmfohdTaNcWhp7VGk26h5jXDA7v3VtTnTLcW";
     uint256 public constant RARE_RARITY = 25;
     string private constant RARE = "rare";
 
     // Stats for the legendary puppy (shiba inu)
-    // @audit-i why not make this a constant?
+    // @done @audit-i why not make this a constant?
     string private legendaryImageUri =
         "ipfs://QmYx6GsYAKnNzZ9A6NvEKV9nf1VaDzJrqDR23Y8YSkebLU";
     uint256 public constant LEGENDARY_RARITY = 5;
@@ -71,12 +74,12 @@ contract PuppyRaffle is ERC721, Ownable {
         address _feeAddress,
         uint256 _raffleDuration
     ) ERC721("Puppy Raffle", "PR") {
-        // @audit-i need to check for zero fee
-        // @audit-i need to check for zero fee addres
-        // @audit-i need to check for zero duration
 
+        // @done audit-i need to check for zero fee
         entranceFee = _entranceFee;
+        // @done @audit-i need to check for zero fee addres
         feeAddress = _feeAddress;
+        // @done @audit-i need to check for zero duration
         raffleDuration = _raffleDuration;
         raffleStartTime = block.timestamp;
 
@@ -93,8 +96,9 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice they have to pay the entrance fee * the number of players
     /// @notice duplicate entrants are not allowed
     /// @param newPlayers the list of players to enter the raffle
-    // @audit-i this should be external
+    // @done @audit-i this should be external
     function enterRaffle(address[] memory newPlayers) public payable {
+        // @done @audit-i no check for zero address array for newPlayers
         require(
             msg.value == entranceFee * newPlayers.length,
             "PuppyRaffle: Must send enough to enter raffle"
@@ -104,9 +108,9 @@ contract PuppyRaffle is ERC721, Ownable {
         }
 
         // Check for duplicates
-        // @audit-g add the players.length to memory variable
-        // @audit-g assert that there are no duplicates before pushing to storage
-        // @audit-v-f DOS attack by calling this function with a lot of players
+        // @done @audit-g add the players.length to memory variable
+        // @todo @audit-g assert that there are no duplicates before pushing to storage
+        // @done @audit-v DOS attack by calling this function with a lot of players
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
                 require(
@@ -116,16 +120,16 @@ contract PuppyRaffle is ERC721, Ownable {
             }
         }
 
-        // @audit-v we can add duplicate address by calling this function multiple times
+        // @todo @audit-v we can add duplicate address by calling this function multiple times
 
         emit RaffleEnter(newPlayers);
     }
 
     /// @param playerIndex the index of the player to refund. You can find it externally by calling `getActivePlayerIndex`
     /// @dev This function will allow there to be blank spots in the array
-    // @audit-i this should be external
+    // @done @audit-i this should be external
     function refund(uint256 playerIndex) public {
-        // @audit-i no check for index out of bounds
+        // @skipped-invalid @audit-i no check for index out of bounds
         address playerAddress = players[playerIndex];
         require(
             playerAddress == msg.sender,
@@ -136,7 +140,7 @@ contract PuppyRaffle is ERC721, Ownable {
             "PuppyRaffle: Player already refunded, or is not active"
         );
 
-        // @audit-v-f reentrancy -> SC should follow the checks-effects-interactions pattern.
+        // @done @audit-v-f reentrancy -> SC should follow the checks-effects-interactions pattern.
         payable(msg.sender).sendValue(entranceFee);
 
         players[playerIndex] = address(0);
@@ -149,15 +153,15 @@ contract PuppyRaffle is ERC721, Ownable {
     function getActivePlayerIndex(
         address player
     ) external view returns (uint256) {
-        // @audit-g add the players length to a memory variable
+        // @todo @audit-g add the players length to a memory variable
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == player) {
                 return i;
             }
         }
 
-        // @audit-v this function will return 0 if the player is not active,
-        // @audit-v but it will also return 0 if the first player is active
+        // @todo @audit-v this function will return 0 if the player is not active,
+        // @todo @audit-v but it will also return 0 if the first player is active
         return 0;
     }
 
@@ -167,37 +171,38 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev we use a hash of on-chain data to generate the random numbers
     /// @dev we reset the active players array after the winner is selected
     /// @dev we send 80% of the funds to the winner, the other 20% goes to the feeAddress
-    // @audit-v no access control for owner
+    // @todo @audit-v no access control for owner
     function selectWinner() external {
         require(
             block.timestamp >= raffleStartTime + raffleDuration,
             "PuppyRaffle: Raffle not over"
         );
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
-        // @audit-v this pseudo-random number generator is not secure
-        // @audit-v players array might contain zero addresses
+        // @todo @audit-v this pseudo-random number generator is not secure
+        // @todo @audit-v players array might contain zero addresses
+        // slither-disable-next-line weak-prng
         uint256 winnerIndex = uint256(
             keccak256(
                 abi.encodePacked(msg.sender, block.timestamp, block.difficulty)
             )
         ) % players.length;
-        // @audit-v winner might be zero address
+        // @todo @audit-v winner might be zero address
         address winner = players[winnerIndex];
-        // @audit-v players array might contain zero addresses,
-        // @audit-v so use something else (not balance)
+        // @todo @audit-v players array might contain zero addresses,
+        // @todo @audit-v so use address(this).balance
         uint256 totalAmountCollected = players.length * entranceFee;
-        // @audit-i don't leave magic numbers 80 and 20
-        // @audit-i move them to constant variables
+        // @todo @audit-i don't leave magic numbers 80 and 20
+        // @todo @audit-i move them to constant variables
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
-        // @audit-q should this increase or override the total fees?
-        // @audit-v overflow because of uint64
+        // @todo @audit-v overflow because of uint64
         totalFees = totalFees + uint64(fee);
 
         uint256 tokenId = totalSupply();
 
         // We use a different RNG calculate from the winnerIndex to determine rarity
-        // @audit-v this pseudo-random number generator is not secure
+        // @todo @audit-v this pseudo-random number generator is not secure
+        // @todo @audit-v people can revert the tx if they don't like the rarity
         uint256 rarity = uint256(
             keccak256(abi.encodePacked(msg.sender, block.difficulty))
         ) % 100;
@@ -210,25 +215,26 @@ contract PuppyRaffle is ERC721, Ownable {
             tokenIdToRarity[tokenId] = LEGENDARY_RARITY;
         }
 
-        // @audit-v follow checks-effects-interactions pattern
-        // @audit-v delete players instantly after the winner is selected
+        // @todo @audit-v follow checks-effects-interactions pattern
+        // @todo @audit-v delete players instantly after the winner is selected
         delete players;
         raffleStartTime = block.timestamp;
-        previousWinner = winner;
+        previousWinner = winner; // @todo @audit-i can remove the variable from SC
 
-        // @audit-i use sendValue instead of call as in previous functions
+        // @todo @audit-i use sendValue instead of call as in previous functions
+        // @todo @audit-v winner can revert the tx
         (bool success, ) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
 
-        // @audit-v follow checks-effects-interactions pattern. Firstly mint token
+        // @todo @audit-v reentrancy -> follow checks-effects-interactions pattern. Firstly mint token
         _safeMint(winner, tokenId);
     }
 
     /// @notice this function will withdraw the fees to the feeAddress
-    // @audit-v no access control for owner
+    // @todo @audit-v no access control for owner
     function withdrawFees() external {
-        // @audit-v users can deposit funds with selfdestruct and
-        // @audit-v owner wouldn't be able to withdraw fees
+        // @todo @audit-v users can deposit funds with selfdestruct and
+        // @todo @audit-v owner wouldn't be able to withdraw fees
         require(
             address(this).balance == uint256(totalFees),
             "PuppyRaffle: There are currently players active!"
@@ -236,7 +242,10 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
 
-        // @audit-i use sendValue instead of call as in previous functions
+        // @todo @audit-i use sendValue instead of call as in previous functions
+        // @todo @audit-i add additional checks for zero amount
+        // @todo @audit-v feeAddress can revert the tx
+        // slither-disable-next-line arbitrary-send-eth
         (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
     }
@@ -244,15 +253,17 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice only the owner of the contract can change the feeAddress
     /// @param newFeeAddress the new address to send fees to
     function changeFeeAddress(address newFeeAddress) external onlyOwner {
-        // @audit-v no check for zero address
+        // @todo @audit-v no check for zero address
         feeAddress = newFeeAddress;
+
+        // @todo @audit-i we missing the events in other functions
         emit FeeAddressChanged(newFeeAddress);
     }
 
-    // @audit-v there is no function for winner to claim their prize
+    // @todo @audit-v there is no function for winner to claim their prize
 
     /// @notice this function will return true if the msg.sender is an active player
-    // @audit-i this function is not used anywhere
+    // @todo @audit-i this function is not used anywhere
     function _isActivePlayer() internal view returns (bool) {
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == msg.sender) {
