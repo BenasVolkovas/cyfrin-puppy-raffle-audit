@@ -276,8 +276,7 @@ contract PuppyRaffleTest is Test {
         uint256 playersNum = 92;
         address[] memory players = new address[](playersNum);
         for (uint256 i; i < playersNum; i++) {
-            players[i] 
-            = address(i + 1);
+            players[i] = address(i + 1);
         }
 
         puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
@@ -288,8 +287,7 @@ contract PuppyRaffleTest is Test {
         playersNum = 4;
         players = new address[](playersNum);
         for (uint256 i; i < playersNum; i++) {
-            players[i] 
-            = address(i + 1000);
+            players[i] = address(i + 1001);
         }
         puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
         skip(duration + 1 minutes);
@@ -297,5 +295,53 @@ contract PuppyRaffleTest is Test {
         uint256 endingTotalFees = puppyRaffle.totalFees();
 
         assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
+    }
+
+    function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
+        // Add 4 players
+        uint256 playersNum = 4;
+        address[] memory players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] = address(i + 1);
+        }
+
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+
+        // Refund by all players
+        for (uint256 i; i < playersNum; i++) {
+            vm.prank(players[i]);
+            puppyRaffle.refund(i);
+        }
+
+        // Select winner
+        skip(duration + 1 minutes);
+        vm.expectRevert("PuppyRaffle: Failed to send prize pool to winner");
+        puppyRaffle.selectWinner();
+    }
+
+    function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly() public {
+        uint256 expectedWinnerIndex = 1;
+        uint256 playersNum = 8;
+        address[] memory players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] = address(i + 1);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+
+        vm.prank(players[0]);
+        puppyRaffle.refund(0);
+
+        skip(duration + 1 minutes);
+        uint256 winnerIndex = uint256(
+            keccak256(
+                abi.encodePacked(playerOne, block.timestamp, block.difficulty)
+            )
+        ) % playersNum;
+        assertEq(winnerIndex, expectedWinnerIndex);
+
+        vm.prank(playerOne);
+        puppyRaffle.selectWinner();
+
+        assertEq(puppyRaffle.totalFees() - entranceFee, address(puppyRaffle).balance);
     }
 }

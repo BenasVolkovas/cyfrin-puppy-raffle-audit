@@ -109,7 +109,7 @@ contract PuppyRaffle is ERC721, Ownable {
 
         // Check for duplicates
         // @done @audit-g add the players.length to memory variable
-        // @todo @audit-g assert that there are no duplicates before pushing to storage
+        // @skipped @audit-g assert that there are no duplicates before pushing to storage
         // @done @audit-v DOS attack by calling this function with a lot of players
         for (uint256 i = 0; i < players.length - 1; i++) {
             for (uint256 j = i + 1; j < players.length; j++) {
@@ -120,8 +120,7 @@ contract PuppyRaffle is ERC721, Ownable {
             }
         }
 
-        // @todo @audit-v we can add duplicate address by calling this function multiple times
-
+        // @invalid @audit-v we can add duplicate address by calling this function multiple times
         emit RaffleEnter(newPlayers);
     }
 
@@ -153,7 +152,7 @@ contract PuppyRaffle is ERC721, Ownable {
     function getActivePlayerIndex(
         address player
     ) external view returns (uint256) {
-        // @todo @audit-g add the players length to a memory variable
+        // @done @audit-g add the players length to a memory variable
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == player) {
                 return i;
@@ -170,7 +169,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @dev we use a hash of on-chain data to generate the random numbers
     /// @dev we reset the active players array after the winner is selected
     /// @dev we send 80% of the funds to the winner, the other 20% goes to the feeAddress
-    // @todo @audit-v no access control for owner
+    // @invalid @audit-v no access control for owner
     function selectWinner() external {
         require(
             block.timestamp >= raffleStartTime + raffleDuration,
@@ -178,23 +177,23 @@ contract PuppyRaffle is ERC721, Ownable {
         );
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
         // @done @audit-v this pseudo-random number generator is not secure
-        // @todo @audit-v players array might contain zero addresses
+        // @skipped @audit-v players array might contain zero addresses
         // slither-disable-next-line weak-prng
         uint256 winnerIndex = uint256(
             keccak256(
                 abi.encodePacked(msg.sender, block.timestamp, block.difficulty)
             )
         ) % players.length;
-        // @todo @audit-v winner might be zero address
+        // @done @audit-v winner might be zero address
         address winner = players[winnerIndex];
-        // @todo @audit-v players array might contain zero addresses,
+        // @done @audit-v players array might contain zero addresses,
         // @todo @audit-v so use address(this).balance
         uint256 totalAmountCollected = players.length * entranceFee;
         // @done @audit-i don't leave magic numbers 80 and 20
         // @done @audit-i move them to constant variables
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
-        // @todo @audit-v overflow because of uint64
+        // @done @audit-v overflow because of uint64
         totalFees = totalFees + uint64(fee);
 
         uint256 tokenId = totalSupply();
@@ -214,14 +213,14 @@ contract PuppyRaffle is ERC721, Ownable {
             tokenIdToRarity[tokenId] = LEGENDARY_RARITY;
         }
 
-        // @todo @audit-v follow checks-effects-interactions pattern
-        // @todo @audit-v delete players instantly after the winner is selected
+        // @invalid @audit-v follow checks-effects-interactions pattern
+        // @invalid @audit-v delete players instantly after the winner is selected
         delete players;
         raffleStartTime = block.timestamp;
-        previousWinner = winner; // @todo @audit-i can remove the variable from SC
+        previousWinner = winner; // @done @audit-i can remove the variable from SC
 
         // @skipped @audit-i use sendValue instead of call as in previous functions
-        // @todo @audit-v winner can revert the tx
+        // @done @audit-v winner can revert the tx
         (bool success, ) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
 
@@ -232,8 +231,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice this function will withdraw the fees to the feeAddress
     // @todo @audit-v no access control for owner
     function withdrawFees() external {
-        // @todo @audit-v users can deposit funds with selfdestruct and
-        // @todo @audit-v owner wouldn't be able to withdraw fees
+        // @todo @audit-v users can deposit funds with selfdestruct and owner wouldn't be able to withdraw fees
         require(
             address(this).balance == uint256(totalFees),
             "PuppyRaffle: There are currently players active!"
@@ -241,7 +239,7 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 feesToWithdraw = totalFees;
         totalFees = 0;
 
-        // @todo @audit-i use sendValue instead of call as in previous functions
+        // @skipped @audit-i use sendValue instead of call as in previous functions
         // @todo @audit-i add additional checks for zero amount
         // @todo @audit-v feeAddress can revert the tx
         // slither-disable-next-line arbitrary-send-eth
@@ -255,14 +253,14 @@ contract PuppyRaffle is ERC721, Ownable {
         // @todo @audit-v no check for zero address
         feeAddress = newFeeAddress;
 
-        // @todo @audit-i we missing the events in other functions
+        // @done @audit-i we missing the events in other functions
         emit FeeAddressChanged(newFeeAddress);
     }
 
-    // @todo @audit-v there is no function for winner to claim their prize
+    // @invalid @audit-v there is no function for winner to claim their prize
 
     /// @notice this function will return true if the msg.sender is an active player
-    // @todo @audit-i this function is not used anywhere
+    // @done @audit-i this function is not used anywhere
     function _isActivePlayer() internal view returns (bool) {
         for (uint256 i = 0; i < players.length; i++) {
             if (players[i] == msg.sender) {

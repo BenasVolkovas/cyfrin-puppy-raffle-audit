@@ -248,6 +248,7 @@ Paste the following test into `PuppyRaffleTest.t.sol`
     ```
 4. The only thing that will prevent the `PuppyRaffle::totalFees` variable from overflowing is to use a `uint256` instead of a `uint64`. This will allow the `PuppyRaffle::totalFees` variable to hold a much larger number, and prevent it from overflowing.
 
+
 # Medium Severity
 
 ### [M-1] Looping through players array to check for duplicates in `PuppyRaffle::enterRaffle` is a potential denial of service (DoS) attack, increamtally increasing the gas cost of the transaction with each new player added to the array.
@@ -360,6 +361,148 @@ Paste the following test into `PuppyRaffleTest.t.sol`
 
 Alternatively, you could use OpenZeppelin's [EnumerableSet](https://docs.openzeppelin.com/contracts/5.x/api/utils#EnumerableSet)
 
+### [M-2] Unsafe cast of `PuppyRaffle::fee` loses fees
+
+**Description:** In `PuppyRaffle::selectWinner` their is a type cast of a `uint256` to a `uint64`. This is an unsafe cast, and if the `uint256` is larger than `type(uint64).max`, the value will be truncated. 
+
+```javascript
+    function selectWinner() external {
+        require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
+        require(players.length > 0, "PuppyRaffle: No players in raffle");
+
+        uint256 winnerIndex = uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
+        address winner = players[winnerIndex];
+        uint256 fee = totalFees / 10;
+        uint256 winnings = address(this).balance - fee;
+@>      totalFees = totalFees + uint64(fee);
+        players = new address[](0);
+        emit RaffleWinner(winner, winnings);
+    }
+```
+
+The max value of a `uint64` is `18446744073709551615`. In terms of ETH, this is only ~`18` ETH. Meaning, if more than 18ETH of fees are collected, the `fee` casting will truncate the value. 
+
+**Impact:** This means the `feeAddress` will not collect the correct amount of fees, leaving fees permanently stuck in the contract.
+
+**Proof of Concept:** 
+
+1. A raffle proceeds with a little more than 18 ETH worth of fees collected
+2. The line that casts the `fee` as a `uint64` hits
+3. `totalFees` is incorrectly updated with a lower amount
+
+You can replicate this in foundry's chisel by running the following:
+
+```javascript
+uint256 max = type(uint64).max
+uint256 fee = max + 1
+uint64(fee)
+// prints 0
+```
+
+**Recommended Mitigation:** Set `PuppyRaffle::totalFees` to a `uint256` instead of a `uint64`, and remove the casting. Their is a comment which says:
+
+```javascript
+// We do some storage packing to save gas
+```
+But the potential gas saved isn't worth it if we have to recast and this bug exists. 
+
+```diff
+-   uint64 public totalFees = 0;
++   uint256 public totalFees = 0;
+
+    // code...
+
+    function selectWinner() external {
+        require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
+        require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
+        uint256 winnerIndex = uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
+        address winner = players[winnerIndex];
+        uint256 totalAmountCollected = players.length * entranceFee;
+        uint256 prizePool = (totalAmountCollected * 80) / 100;
+        uint256 fee = (totalAmountCollected * 20) / 100;
+-       totalFees = totalFees + uint64(fee);
++       totalFees = totalFees + fee;
+```
+
+### [M-3] A raffle winner, represented by a smart contract, has the ability to revert the transaction for `PuppyRaffle::selectWinner``, thus preventing the raffle from ending.
+
+**Description:** The `PuppyRaffle::selectWinner` function is responsible for resseting the lottery. However, if the winner is a smart contract wallet that reverts the transfer, the lottery would not be able to restart, making the raffle stuck.
+
+Users could easily call the `selectWinner` function again, but it would cost additional gas due to the duplicate check. This would be a waste of gas and make the reset process very challenging
+
+**Impact:** The `PuppyRaffle::selectWinner` function could be reverted many times, preventing the raffle from ending.
+
+Also, true winners would not get their prize money, and someone else could take their money by calling the `PuppyRaffle::selectWinner` function again.
+
+**Proof of Concept:**
+
+1. 10 smart contracts without a `recieve` or `fallback` function enter the raffle.
+2. The lottery time ends.
+3. One of the smart contracts is chosen as the winner.
+4. The winner smart contract reverts the transfer for `selectWinner` function.
+
+**Recommended Mitigation:** There are a few ways to prevent this:
+
+1. Do not allow smart contract wallets as players (not recommended).
+2. Create a mapping from player addresses to price amount, so winners can pull their funds out themselves. Making the winner responsible for claiming their prize money. This follows Pull over Push pattern (recommended).
+
+
+### [M-4] A raffle winner can be a zero address (after the refund), which will revert the transaction when trying to transfer fund in `PuppyRaffle::selectWinner``, thus preventing the raffle from ending.
+
+**Description:** The `PuppyRaffle::selectWinner` function is responsible for resseting the lottery. However, if the winner is a zero address, the lottery would not be able to restart, making the raffle stuck.
+
+Users could easily call the `selectWinner` function again, but it would cost additional gas due to the duplicate check. This would be a waste of gas and make the reset process very challenging
+
+**Impact:** The `PuppyRaffle::selectWinner` function could be reverted many times, preventing the raffle from ending.
+
+**Proof of Concept:**
+
+1. 4 players enter the raffle.
+2. 4 players refund their entry fee.
+3. The lottery time ends.
+4. `selectWinner` is called by anyone.
+5. Zero address is chosen as the winner.
+6. The smart contract tries to transfer fund to the zero address, which reverts the transaction.
+
+<details>
+<summary>POC code</summary>
+Paste the following test into `PuppyRaffleTest.t.sol`
+
+```javascript
+function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
+    // Add 4 players
+    uint256 playersNum = 4;
+    address[] memory players = new address[](playersNum);
+    for (uint256 i; i < playersNum; i++) {
+        players[i] = address(i + 1);
+    }
+
+    puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+
+    // Refund by all players
+    for (uint256 i; i < playersNum; i++) {
+        vm.prank(players[i]);
+        puppyRaffle.refund(i);
+    }
+
+    // Select winner
+    skip(duration + 1 minutes);
+    vm.expectRevert("PuppyRaffle: Failed to send prize pool to winner");
+    puppyRaffle.selectWinner();
+}
+```
+</details>
+
+**Recommended Mitigation:**  Consider checking for zero address after assigning the winner but before sending the prize pool to the winner. This will prevent the `PuppyRaffle::selectWinner` function from reverting.
+
+```diff
+    function selectWinner() external {
+        require(block.timestamp >= raffleStartTime + raffleDuration, "PuppyRaffle: Raffle not over");
+        require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
+        uint256 winnerIndex = uint256(keccak256(abi.encodePacked(msg.sender, block.timestamp, block.difficulty))) % players.length;
+        address winner = players[winnerIndex];
++       require(winner != address(0), "PuppyRaffle: Winner is zero address");
+```
 # Low Severity
 
 ### [L-1] `PuppyRaffle::getActivePlayerIndex` returns `0` for non-existent players, which is the same as the index for the first player in the `players` array, causing a player at the index `0` to incorrectly think they have not entered the raffle
@@ -550,6 +693,30 @@ modifier nonEmptyArray(address[] memory _array) {
 
 # Gas Optimization
 
+### [I-9] `PuppyRaffle::previousWinner` variable is not used anywhere
+
+**Description:** The `PuppyRaffle::previousWinner` variable is declared in the contract as state variable. It is assigned a value in the `PuppyRaffle::selectWinner` function, but it is not used anywhere else in the contract. This is a waste of gas.
+
+```javascript
+    address public previousWinner;
+```
+
+**Recommended Mitigation:** Remove the `PuppyRaffle::previousWinner` variable declaration from the contract and all references to it.
+
+```diff
+-   address public previousWinner;
+
+    // code...
+
+-   previousWinner = winner;
+```
+
+### [I-10] State changes are not emitting events
+
+**Description:** State changes are not emitting events. This makes it difficult to track the state changes of the contract.
+
+**Recommended Mitigation:** Consider emitting events for state changes.
+
 ### [G-1]: Unchanged state variables should be constant or immutable
 
 **Description:** Multiple state variables are not changed after initialization. These variables should be declared as constant or immutable to prevent accidental changes. Reading from constant or immutable variables is cheaper than reading from state variables.
@@ -611,3 +778,38 @@ Instances of this issue are:
         }
     }
 ```
+### [G-5]: `PuppyRaffle::_isActivePlayer` function is not used anywhere
+
+**Description:** The `PuppyRaffle::_isActivePlayer` function is declared in the contract, but it is not used anywhere. This is a waste of gas.
+
+**Recommended Mitigation:** Remove the `PuppyRaffle::_isActivePlayer` function declaration from the contract.
+
+### [G-6]: `PuppyRaffle::getActivePlayerIndex` function reads from storage in a loop without caching the value in memory
+
+**Description:** `players.length` is read from storage in a loop. This is expensive and can be avoided by caching the value in memory.
+
+```javascript
+    function getActivePlayerIndex(
+        address player
+    ) external view returns (uint256) {
+@>      for (uint256 i = 0; i < players.length; i++) {
+            if (players[i] == player) {
+                return i;
+            }
+        }
+        return 0;
+    }
+```
+
+**Recommended Mitigation:**  Replace the `players.length` in the loop to a variable `playersLength` that is cached in memory before the loop.
+
+```diff
++   uint256 playersLength = players.length;
+-   for (uint256 i = 0; i < players.length; i++) {
++   for (uint256 i = 0; i < playersLength; i++) {
+        if (players[i] == player) {
+            return i;
+        }
+    }
+```
+
