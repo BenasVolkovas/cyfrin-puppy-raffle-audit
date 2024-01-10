@@ -160,8 +160,7 @@ contract PuppyRaffle is ERC721, Ownable {
             }
         }
 
-        // @todo @audit-v this function will return 0 if the player is not active,
-        // @todo @audit-v but it will also return 0 if the first player is active
+        // @done @audit-v this function will return 0 if the player is not active, but it will also return 0 if the first player is active
         return 0;
     }
 
@@ -178,7 +177,7 @@ contract PuppyRaffle is ERC721, Ownable {
             "PuppyRaffle: Raffle not over"
         );
         require(players.length >= 4, "PuppyRaffle: Need at least 4 players");
-        // @todo @audit-v this pseudo-random number generator is not secure
+        // @done @audit-v this pseudo-random number generator is not secure
         // @todo @audit-v players array might contain zero addresses
         // slither-disable-next-line weak-prng
         uint256 winnerIndex = uint256(
@@ -191,8 +190,8 @@ contract PuppyRaffle is ERC721, Ownable {
         // @todo @audit-v players array might contain zero addresses,
         // @todo @audit-v so use address(this).balance
         uint256 totalAmountCollected = players.length * entranceFee;
-        // @todo @audit-i don't leave magic numbers 80 and 20
-        // @todo @audit-i move them to constant variables
+        // @done @audit-i don't leave magic numbers 80 and 20
+        // @done @audit-i move them to constant variables
         uint256 prizePool = (totalAmountCollected * 80) / 100;
         uint256 fee = (totalAmountCollected * 20) / 100;
         // @todo @audit-v overflow because of uint64
@@ -201,8 +200,8 @@ contract PuppyRaffle is ERC721, Ownable {
         uint256 tokenId = totalSupply();
 
         // We use a different RNG calculate from the winnerIndex to determine rarity
-        // @todo @audit-v this pseudo-random number generator is not secure
-        // @todo @audit-v people can revert the tx if they don't like the rarity
+        // @done @audit-v this pseudo-random number generator is not secure
+        // @done @audit-v people can revert the tx if they don't like the rarity
         uint256 rarity = uint256(
             keccak256(abi.encodePacked(msg.sender, block.difficulty))
         ) % 100;
@@ -221,12 +220,12 @@ contract PuppyRaffle is ERC721, Ownable {
         raffleStartTime = block.timestamp;
         previousWinner = winner; // @todo @audit-i can remove the variable from SC
 
-        // @todo @audit-i use sendValue instead of call as in previous functions
+        // @skipped @audit-i use sendValue instead of call as in previous functions
         // @todo @audit-v winner can revert the tx
         (bool success, ) = winner.call{value: prizePool}("");
         require(success, "PuppyRaffle: Failed to send prize pool to winner");
 
-        // @todo @audit-v reentrancy -> follow checks-effects-interactions pattern. Firstly mint token
+        // @done @audit-v reentrancy -> follow checks-effects-interactions pattern. Firstly mint token
         _safeMint(winner, tokenId);
     }
 

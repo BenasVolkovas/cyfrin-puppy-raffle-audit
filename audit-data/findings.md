@@ -106,7 +106,6 @@ contract ReentrancyAttacker {
     }
 }
 ```
-
 </details>
 
 **Recommended Mitigation:**  To prevent this, set the `players` array before making the external call to `sendValue`. This will prevent the attacker from calling the `PuppyRaffle::refund` function again. This follows the Checks-Effects-Interactions pattern.
@@ -132,6 +131,122 @@ function refund(uint256 playerIndex) public {
     emit RaffleRefunded(playerAddress);
 }
 ```
+
+### [H-2]: Weak randomness in `PuppyRaffle::selectWinner` function allows an attacker to predict or influence the winner
+
+**Description:** `msg.sender`, `block.timestamp` and `block.difficulty` creates a predictable number. These values can be influenced by miners to some extent so they should be avoided. Predictable number is not a good random number. Malicious users can manipulate these values to choose the winner of the raffle themselves.
+
+```javascript
+        uint256 winnerIndex = uint256(
+            keccak256(
+@>              abi.encodePacked(msg.sender, block.timestamp, block.difficulty)
+            )
+        ) % players.length;
+```
+
+**Impact:** Any user can influence the winner of the raffle, winning the price money. This makes the raffle unfair and worthless if it becomes a gas war as to who wins.
+
+**Proof of Concept:**
+
+1. Validators can know ahead of time the `block.timestamp` and `block.difficulty` ahead of time. This means they can choose when to call the `PuppyRaffle::selectWinner` function to influence the winner.
+2. Users can manipulate `msg.sender` to influence the winner.
+3. Users can revert the `selectWinner` function if they are not the winner.
+4. This additionally means users could front-run this function and call `refund` if they see they are not the winner of the raffle.
+
+**Recommended Mitigation:** Consider using a verifiable random number generator (VRF) to generate a trully random number. Use a VRF that is already audited and tested. For example, Chainlink VRF or Gelato VRF.
+
+### [H-3]: Weak randomness in `PuppyRaffle::selectWinner` function allows an attacker to predict or influence the NFT rarity
+
+**Description:** `msg.sender` and `block.difficulty` creates a predictable number. These values can be influenced by miners to some extent so they should be avoided. Predictable number is not a good random number. Malicious users can manipulate these values to choose the rarity of the NFT.
+
+```javascript
+        uint256 rarity = uint256(
+@>          keccak256(abi.encodePacked(msg.sender, block.difficulty))
+        ) % 100;
+```
+
+**Impact:** Any user can influence the rarity of the NFT, transferring the rarity they want. This makes the raffle unfair and worthless.
+
+**Proof of Concept:**
+
+1. Validators can know ahead of time the  `block.difficulty` ahead of time. This means they can choose when to call the `PuppyRaffle::selectWinner` function to influence the rarity.
+2. Users can manipulate `msg.sender` to influence the rarity of NFT.
+3. Users can revert the `selectWinner` function if they don't like the rarity.
+4. This additionally means users could front-run this function and call `refund` if they see they are not the winner of the raffle, but the NFT is not the rarity they want.
+
+**Recommended Mitigation:** Consider using a verifiable random number generator (VRF) to generate a trully random number. Use a VRF that is already audited and tested. For example, Chainlink VRF or Gelato VRF.
+
+### [H-4] Integer overflow of `PuppyRaffle::totalFees` loses the fee amount
+
+**Description:** In solidity versions prior to `0.8.0`, integer overflow is not checked. This means that if the `PuppyRaffle::totalFees` variable overflows, the fee amount will be lost.
+
+```javascript
+@>      totalFees = totalFees + uint64(fee);
+```
+
+**Impact:** In `PuppyRaffle::selectWinner`, the `PuppyRaffle::totalFees` variable can overflow, meaning the fee amount will be lost and tokens permanently locked in the contract.
+
+**Proof of Concept:**
+
+1. 92 players enter the raffle with 1 ETH each
+2. 4 players enter the raffle with 1 ETH each
+3. `totalFees` will be:
+    ```javascript
+    totalFees = totalFees + uint64(fee);
+    // With numbers from the POC
+    totalFees = 18400000000000000000 + 800000000000000000
+    // Overflow final value
+    totalFees = 753255926290448385
+    ```
+4. Because of the `PuppyRaffle::withdrawFees` function, `feeAddress` will not be able to receive `totalFees`.
+
+<details>
+<summary>POC code</summary>
+Paste the following test into `PuppyRaffleTest.t.sol`
+
+```javascript
+    function test_audit_selectWinner_TotalFeeVariableOverflows() public {
+        uint256 playersNum = 92;
+        address[] memory players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] 
+            = address(i + 1);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+        skip(duration + 1 minutes);
+        puppyRaffle.selectWinner();
+        uint256 startingTotalFees = puppyRaffle.totalFees();
+ 
+        playersNum = 4;
+        players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] 
+            = address(i + 1000);
+        }
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+        skip(duration + 1 minutes);
+        puppyRaffle.selectWinner();
+        uint256 endingTotalFees = puppyRaffle.totalFees();
+
+        assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
+    }
+}
+```
+
+</details>
+
+**Recommended Mitigation:** There are a few ways to prevent this:
+
+1. Use a newer version of Solidity that checks for integer overflow. For example, `0.8.0` or higher. Though this will not prevent the `PuppyRaffle::totalFees` variable from overflowing, it will allow you to catch the overflow and revert the transaction.
+2. Use a SafeMath library to check for integer overflow. For example, [OpenZeppelin SafeMath](https://docs.openzeppelin.com/contracts/5.x/utilities#math). Though this will not prevent the `PuppyRaffle::totalFees` variable from overflowing, it will allow you to catch the overflow and revert the transaction.
+3. Remove balance check from `PuppyRaffle:withdrawFees` function. This will allow the `feeAddress` to withdraw the fees, even if the `PuppyRaffle::totalFees` variable overflows.
+    ```diff
+    -   require(
+    -       address(this).balance == uint256(totalFees),
+    -       "PuppyRaffle: There are currently players active!"
+    -   );
+    ```
+4. The only thing that will prevent the `PuppyRaffle::totalFees` variable from overflowing is to use a `uint256` instead of a `uint64`. This will allow the `PuppyRaffle::totalFees` variable to hold a much larger number, and prevent it from overflowing.
 
 # Medium Severity
 
@@ -390,6 +505,47 @@ modifier nonEmptyArray(address[] memory _array) {
     }
     _;
 }
+```
+
+### [I-7]: `PuppyRaffle::selectWinnter` should follow CEI (Checks-Effects-Interactions) pattern
+
+**Description:** It's a best practice to follow the CEI (Checks-Effects-Interactions) pattern to keep the codebase clean and consistent.
+
+**Recommended Mitigation:** Move the `_safeMint` function call to the top of the function, and move the `winner.call` function call to the bottom of the function. Firstly end effects, then interactions.
+
+```diff
++   _safeMint(winner, tokenId);    
+
+    (bool success, ) = winner.call{value: prizePool}("");
+    require(success, "PuppyRaffle: Failed to send prize pool to winner");
+
+-   _safeMint(winner, tokenId);
+
+```
+
+### [I-8] Use of "magic" numbers is not recommended
+
+**Description:** It can be confusing to see number literals in code. It is better to declare a constant variable and give them names.
+
+```javascript
+@>      uint256 prizePool = (totalAmountCollected * 80) / 100;
+@>      uint256 fee = (totalAmountCollected * 20) / 100;
+```
+
+**Recommended Mitigation:**  Consider declaring these numbers as constant variables ot the top of the contract and use them in the code.
+
+```diff
++       uint256 public constant PRIZE_POOL_PERCENTAGE = 80;
++       uint256 public constant FEE_PERCENTAGE = 20;
++       uint256 public constant PERCENTAGE_DIVISOR = 100;
+
+        // code...
+
+-       uint256 prizePool = (totalAmountCollected * 80) / 100;
+-       uint256 fee = (totalAmountCollected * 20) / 100;
+
++       uint256 prizePool = (totalAmountCollected * PRIZE_POOL_PERCENTAGE) / PERCENTAGE_DIVISOR;
++       uint256 fee = (totalAmountCollected * FEE_PERCENTAGE) / PERCENTAGE_DIVISOR;
 ```
 
 # Gas Optimization

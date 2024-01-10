@@ -272,21 +272,25 @@ contract PuppyRaffleTest is Test {
         assertEq(endingAttackerContractBalance - entranceFee, startingPuppyRaffleBalance, "Attacker contract balance should be equal to starting PuppyRaffle balance");
     }
 
-    function test_audit_selectWinner_TotalFeeVariableOverflows() public playersEntered {
-        skip(duration + 1 minutes);
-        puppyRaffle.selectWinner();
-
-        uint256 playersNum = 50;
+    function test_audit_selectWinner_TotalFeeVariableOverflows() public {
+        uint256 playersNum = 92;
         address[] memory players = new address[](playersNum);
         for (uint256 i; i < playersNum; i++) {
-            players[i] = address(i + 1);
+            players[i] 
+            = address(i + 1);
         }
-        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
 
+        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
         skip(duration + 1 minutes);
         puppyRaffle.selectWinner();
         uint256 startingTotalFees = puppyRaffle.totalFees();
-
+ 
+        playersNum = 4;
+        players = new address[](playersNum);
+        for (uint256 i; i < playersNum; i++) {
+            players[i] 
+            = address(i + 1000);
+        }
         puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
         skip(duration + 1 minutes);
         puppyRaffle.selectWinner();
