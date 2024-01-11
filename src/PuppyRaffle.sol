@@ -74,7 +74,6 @@ contract PuppyRaffle is ERC721, Ownable {
         address _feeAddress,
         uint256 _raffleDuration
     ) ERC721("Puppy Raffle", "PR") {
-
         // @done audit-i need to check for zero fee
         entranceFee = _entranceFee;
         // @done @audit-i need to check for zero fee addres
@@ -187,7 +186,7 @@ contract PuppyRaffle is ERC721, Ownable {
         // @done @audit-v winner might be zero address
         address winner = players[winnerIndex];
         // @done @audit-v players array might contain zero addresses,
-        // @todo @audit-v so use address(this).balance
+        // @done @audit-v so use address(this).balance
         uint256 totalAmountCollected = players.length * entranceFee;
         // @done @audit-i don't leave magic numbers 80 and 20
         // @done @audit-i move them to constant variables
@@ -229,9 +228,9 @@ contract PuppyRaffle is ERC721, Ownable {
     }
 
     /// @notice this function will withdraw the fees to the feeAddress
-    // @todo @audit-v no access control for owner
+    // @invalid @audit-v no access control for owner
     function withdrawFees() external {
-        // @todo @audit-v users can deposit funds with selfdestruct and owner wouldn't be able to withdraw fees
+        // @done @audit-v users can deposit funds with selfdestruct and owner wouldn't be able to withdraw fees
         require(
             address(this).balance == uint256(totalFees),
             "PuppyRaffle: There are currently players active!"
@@ -240,8 +239,8 @@ contract PuppyRaffle is ERC721, Ownable {
         totalFees = 0;
 
         // @skipped @audit-i use sendValue instead of call as in previous functions
-        // @todo @audit-i add additional checks for zero amount
-        // @todo @audit-v feeAddress can revert the tx
+        // @done @audit-i add additional checks for zero amount
+        // @skipped @audit-v feeAddress can revert the tx
         // slither-disable-next-line arbitrary-send-eth
         (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
         require(success, "PuppyRaffle: Failed to withdraw fees");
@@ -250,7 +249,7 @@ contract PuppyRaffle is ERC721, Ownable {
     /// @notice only the owner of the contract can change the feeAddress
     /// @param newFeeAddress the new address to send fees to
     function changeFeeAddress(address newFeeAddress) external onlyOwner {
-        // @todo @audit-v no check for zero address
+        // @done @audit-v no check for zero address
         feeAddress = newFeeAddress;
 
         // @done @audit-i we missing the events in other functions

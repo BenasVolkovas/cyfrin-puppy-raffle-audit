@@ -64,7 +64,7 @@ function test_audit_refund_ExploitableWithReentrancy() public playersEntered {
 }
 ```
 
-Add this contract as `ReentrancyAttacker.sol` in  `test/mocks`
+Add this contract as `ReentrancyAttacker.sol` in `test/mocks`
 
 ```javascript
 // SPDX-License-Identifier: MIT
@@ -106,9 +106,10 @@ contract ReentrancyAttacker {
     }
 }
 ```
+
 </details>
 
-**Recommended Mitigation:**  To prevent this, set the `players` array before making the external call to `sendValue`. This will prevent the attacker from calling the `PuppyRaffle::refund` function again. This follows the Checks-Effects-Interactions pattern.
+**Recommended Mitigation:** To prevent this, set the `players` array before making the external call to `sendValue`. This will prevent the attacker from calling the `PuppyRaffle::refund` function again. This follows the Checks-Effects-Interactions pattern.
 
 ```diff
 function refund(uint256 playerIndex) public {
@@ -123,7 +124,7 @@ function refund(uint256 playerIndex) public {
     );
 
 -   payable(msg.sender).sendValue(entranceFee);
-    
+
     players[playerIndex] = address(0);
 
 +   payable(msg.sender).sendValue(entranceFee);
@@ -169,7 +170,7 @@ function refund(uint256 playerIndex) public {
 
 **Proof of Concept:**
 
-1. Validators can know ahead of time the  `block.difficulty` ahead of time. This means they can choose when to call the `PuppyRaffle::selectWinner` function to influence the rarity.
+1. Validators can know ahead of time the `block.difficulty` ahead of time. This means they can choose when to call the `PuppyRaffle::selectWinner` function to influence the rarity.
 2. Users can manipulate `msg.sender` to influence the rarity of NFT.
 3. Users can revert the `selectWinner` function if they don't like the rarity.
 4. This additionally means users could front-run this function and call `refund` if they see they are not the winner of the raffle, but the NFT is not the rarity they want.
@@ -194,9 +195,9 @@ function refund(uint256 playerIndex) public {
     ```javascript
     totalFees = totalFees + uint64(fee);
     // With numbers from the POC
-    totalFees = 18400000000000000000 + 800000000000000000
+    totalFees = 18400000000000000000 + 800000000000000000;
     // Overflow final value
-    totalFees = 753255926290448385
+    totalFees = 753255926290448385;
     ```
 4. Because of the `PuppyRaffle::withdrawFees` function, `feeAddress` will not be able to receive `totalFees`.
 
@@ -205,31 +206,30 @@ function refund(uint256 playerIndex) public {
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
-    function test_audit_selectWinner_TotalFeeVariableOverflows() public {
-        uint256 playersNum = 92;
-        address[] memory players = new address[](playersNum);
-        for (uint256 i; i < playersNum; i++) {
-            players[i] 
-            = address(i + 1);
-        }
-        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
-        skip(duration + 1 minutes);
-        puppyRaffle.selectWinner();
-        uint256 startingTotalFees = puppyRaffle.totalFees();
- 
-        playersNum = 4;
-        players = new address[](playersNum);
-        for (uint256 i; i < playersNum; i++) {
-            players[i] 
-            = address(i + 1000);
-        }
-        puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
-        skip(duration + 1 minutes);
-        puppyRaffle.selectWinner();
-        uint256 endingTotalFees = puppyRaffle.totalFees();
-
-        assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
+function test_audit_selectWinner_TotalFeeVariableOverflows() public {
+    uint256 playersNum = 92;
+    address[] memory players = new address[](playersNum);
+    for (uint256 i; i < playersNum; i++) {
+        players[i]
+        = address(i + 1);
     }
+    puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+    skip(duration + 1 minutes);
+    puppyRaffle.selectWinner();
+    uint256 startingTotalFees = puppyRaffle.totalFees();
+
+    playersNum = 4;
+    players = new address[](playersNum);
+    for (uint256 i; i < playersNum; i++) {
+        players[i]
+        = address(i + 1000);
+    }
+    puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+    skip(duration + 1 minutes);
+    puppyRaffle.selectWinner();
+    uint256 endingTotalFees = puppyRaffle.totalFees();
+
+    assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
 }
 ```
 
@@ -248,6 +248,186 @@ Paste the following test into `PuppyRaffleTest.t.sol`
     ```
 4. The only thing that will prevent the `PuppyRaffle::totalFees` variable from overflowing is to use a `uint256` instead of a `uint64`. This will allow the `PuppyRaffle::totalFees` variable to hold a much larger number, and prevent it from overflowing.
 
+### [H-5] `PuppyRaffle::selectWinner` calculates the `prizePool` and `fee` incorrectly, transferring the wrong amount of funds to the winner and setting the wrong amount of fees
+
+**Description:** `selectWinner` multiplies `players.length` and `entranceFee` to calculate the total amount which needs to be distributed. This calculation only works if no players called `refund` function. If at least 1 player called the `refund` function, the `players.length` will stay the same, only the address will be set to `address(0)`. But the balance of the contract will be decreased by the amount of the refund. This means that the `prizePool` and `fee` will be calculated incorrectly.
+
+```javascript
+@>      uint256 totalAmountCollected = players.length * entranceFee;
+        uint256 prizePool = (totalAmountCollected * 80) / 100;
+        uint256 fee = (totalAmountCollected * 20) / 100;
+```
+
+**Impact:** The `prizePool` and `fee` will be calculated incorrectly, and the winner will receive the larger amount of funds. This means the `totalFees` will not be set to the correct amount. Also, fee owner will not be able to withdraw the fees because of the balance check in `PuppyRaffle::withdrawFees` function. `totalFees` will be greater than the balance of the contract.
+
+**Proof of Concept:**
+
+1. 8 players enter the raffle with 1 ETH each
+2. Player with index 0 calls the `refund` function
+3. Duration of the raffle passes
+4. Player with index 1 calls the `selectWinner` function
+5. Winner receives 6.4 ETH instead of 5.6 ETH
+6. Total fees will be 1.6 ETH even though the balance of the contract is 0.6 ETH
+
+<details>
+<summary>POC code</summary>
+Paste the following test into `PuppyRaffleTest.t.sol`
+
+```javascript
+function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly()
+    public
+{
+    // Setup
+    uint256 expectedWinnerIndex = 1;
+    uint256 playersNum = 8;
+    address[] memory players = new address[](playersNum);
+    for (uint256 i; i < playersNum; i++) {
+        players[i] = address(i + 1);
+    }
+
+    // 8 players enter the raffle with 1 ETH each
+    puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
+
+    // Player with index 0 calls the `refund` function
+    vm.prank(players[0]);
+    puppyRaffle.refund(0);
+
+    // Duration of the raffle passes
+    skip(duration + 1 minutes);
+    uint256 winnerIndex = uint256(
+        keccak256(
+            abi.encodePacked(playerOne, block.timestamp, block.difficulty)
+        )
+    ) % playersNum;
+    assertEq(winnerIndex, expectedWinnerIndex);
+
+    uint256 winnerStartingBalance = players[winnerIndex].balance;
+
+    // Player with index 1 calls the `selectWinner` function
+    vm.prank(playerOne);
+    puppyRaffle.selectWinner();
+    uint256 winnerEndingBalance = players[winnerIndex].balance;
+    uint256 winnerReward = winnerEndingBalance - winnerStartingBalance;
+
+    uint256 entranceFeeForWinner = (entranceFee * 80) / 100;
+    uint256 expectedWinnerPayout = entranceFeeForWinner * (playersNum - 1);
+    uint256 totalFees = uint256(puppyRaffle.totalFees());
+
+    // Assert winner reward
+    console2.log("Winner reward: ", winnerReward);
+    console2.log("Expected winner payout: ", expectedWinnerPayout);
+    assertEq(winnerReward, expectedWinnerPayout + entranceFeeForWinner);
+
+    // Assert total fees
+    console2.log("Total fees: ", totalFees);
+    console2.log("PuppyRaffle balance: ", address(puppyRaffle).balance);
+    assertEq(totalFees, address(puppyRaffle).balance + entranceFee);
+}
+```
+
+</details>
+
+**Recommended Mitigation:** There are a few ways to prevent this:
+
+1. After users call the `refund` function, remove them from the `players` array. This will prevent the `players.length` from being incorrect. Though this will not prevent the `prizePool` and `fee` from being calculated incorrectly if someone deposits ETH by calling `selfdesctruct` with the raffle contract address as funds receiver.
+
+    ```diff
+        function refund(uint256 playerIndex) public {
+            address playerAddress = players[playerIndex];
+            require(
+                playerAddress == msg.sender,
+                "PuppyRaffle: Only the player can refund"
+            );
+            require(
+                playerAddress != address(0),
+                "PuppyRaffle: Player already refunded, or is not active"
+            );
+
+            payable(msg.sender).sendValue(entranceFee);
+
+    -       players[playerIndex] = address(0);
+    +       players[playerIndex] = players[players.length - 1];
+    +       players.pop();
+
+            emit RaffleRefunded(playerAddress);
+        }
+    ```
+
+2. Simpliest solution is to use `address(this).balance` for total amount. This will prevent the `prizePool` and `fee` from being calculated incorrectly if someone deposits ETH by calling `selfdesctruct` with the raffle contract address as funds receiver. But this will not prevent the `players.length` from being incorrect.
+
+    ```diff
+    -   uint256 totalAmountCollected = players.length * entranceFee;
+    +   uint256 totalAmountCollected = address(this).balance;
+    ```
+
+### [H-6] If `selfdestruct` is called with the raffle contract address as funds receiver balance check in `PuppyRaffle::withdrawFees` function prevents the fee owner from withdrawing the fees
+
+**Description:** Anyone can call `withdrawFees` function, which will transfer `totalFees` to the `feeAddress`. But the `withdrawFees` function checks if the balance of the contract is equal to `totalFees`. This means that if someone calls `selfdestruct` with the raffle contract address as funds receiver, the `feeAddress` will not be able to withdraw the fees.
+
+```javascript
+    function withdrawFees() external {
+        require(
+@>          address(this).balance == uint256(totalFees),
+            "PuppyRaffle: There are currently players active!"
+        );
+        uint256 feesToWithdraw = totalFees;
+        totalFees = 0;
+
+        (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
+        require(success, "PuppyRaffle: Failed to withdraw fees");
+    }
+
+```
+
+**Impact:** The `feeAddress` will not be able to withdraw the fees, and the fees will be permanently locked in the contract. The 20% of all locked funds will be lost.
+
+**Proof of Concept:**
+
+1. 4 players enter the raffle with 1 ETH each
+2. Duration of the raffle passes
+3. Player with index 1 calls the `selectWinner` function
+4. Attacker deploys a contract and calls `selfdestruct` function
+5. Player with index 1 calls the `withdrawFees` function, but it reverts
+
+<details>
+<summary>POC code</summary>
+Paste the following test into `PuppyRaffleTest.t.sol`
+
+```javascript
+function test_audit_withdrawFees_AlwaysRevertsIfSelfdesctructTransferredFunds()
+    public
+    playersEntered
+{
+    skip(duration + 1 minutes);
+    vm.prank(playerOne);
+    puppyRaffle.selectWinner();
+
+    SelfDestructAttacker attacker = new SelfDestructAttacker{
+        value: 1 ether
+    }(address(puppyRaffle));
+
+    // Withdraw fees
+    vm.expectRevert("PuppyRaffle: There are currently players active!");
+    puppyRaffle.withdrawFees();
+}
+```
+
+</details>
+
+**Recommended Mitigation:** Remove the balance check from `PuppyRaffle:withdrawFees` function. This will allow to always withdraw the fees all the time.
+
+```diff
+function withdrawFees() external {
+-   require(
+-       address(this).balance == uint256(totalFees),
+-       "PuppyRaffle: There are currently players active!"
+-   );
+    uint256 feesToWithdraw = totalFees;
+    totalFees = 0;
+    (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
+    require(success, "PuppyRaffle: Failed to withdraw fees");
+}
+```
 
 # Medium Severity
 
@@ -266,15 +446,16 @@ Paste the following test into `PuppyRaffleTest.t.sol`
     }
 ```
 
-**Impact:** The gas costs for raffle entrants will greatly increase as more players enter the raffle. Discouraging the later users from entering, and causing a rush at the start of a raffle to be one of the first entrants in the queue. 
+**Impact:** The gas costs for raffle entrants will greatly increase as more players enter the raffle. Discouraging the later users from entering, and causing a rush at the start of a raffle to be one of the first entrants in the queue.
 
 An attacker might make the `players` array so big, that no one else enters, guarenteeing thenselves the win.
 
 **Proof of Concept:**
 
 If we have 2 sets of 100 players enter, the gas costs will be as such:
-- 1st set of 100 players: 6271948 wei
-- 2nd set of 100 players: 18068128 wei
+
+-   1st set of 100 players: 6271948 wei
+-   2nd set of 100 players: 18068128 wei
 
 This is almost a 3x increase in gas costs for the 2nd set of players.
 
@@ -283,45 +464,45 @@ This is almost a 3x increase in gas costs for the 2nd set of players.
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
-    // POC `PuppyRafle::enterRaffle` DoS
-    function test_audit_enterRaffle_DenialOfService() public {
-        vm.txGasPrice(1);
+function test_audit_enterRaffle_DenialOfService() public {
+    vm.txGasPrice(1);
 
-        // Create 1st 100 players
-        uint256 playersNum = 100;
-        address[] memory players = new address[](playersNum);
-        for (uint256 i; i < playersNum; i++) {
-            players[i] = address(i + 1);
-        }
-
-        // Calculate gas cost of entering raffle for 1st player
-        uint256 gasBefore = gasleft();
-        puppyRaffle.enterRaffle{value: entranceFee * players.length}(players);
-        uint256 gasAfter = gasleft();
-        uint256 gasCostFirst = (gasBefore - gasAfter) * tx.gasprice;
-
-        // Create 2nd 100 players
-        address[] memory players2 = new address[](playersNum);
-        for (uint256 i; i < playersNum; i++) {
-            players2[i] = address(i + 1 + playersNum);
-        }
-
-        // Calculate gas cost of entering raffle for 2nd player
-        gasBefore = gasleft();
-        puppyRaffle.enterRaffle{value: entranceFee * players2.length}(players2);
-        gasAfter = gasleft();
-        uint256 gasCostSecond = (gasBefore - gasAfter) * tx.gasprice;
-
-        console2.log(gasCostFirst);
-        console2.log(gasCostSecond);
-
-        // 2nd player should pay more gas than 1st player
-        assertTrue(gasCostSecond > gasCostFirst);
+    // Create 1st 100 players
+    uint256 playersNum = 100;
+    address[] memory players = new address[](playersNum);
+    for (uint256 i; i < playersNum; i++) {
+        players[i] = address(i + 1);
     }
+
+    // Calculate gas cost of entering raffle for 1st player
+    uint256 gasBefore = gasleft();
+    puppyRaffle.enterRaffle{value: entranceFee * players.length}(players);
+    uint256 gasAfter = gasleft();
+    uint256 gasCostFirst = (gasBefore - gasAfter) * tx.gasprice;
+
+    // Create 2nd 100 players
+    address[] memory players2 = new address[](playersNum);
+    for (uint256 i; i < playersNum; i++) {
+        players2[i] = address(i + 1 + playersNum);
+    }
+
+    // Calculate gas cost of entering raffle for 2nd player
+    gasBefore = gasleft();
+    puppyRaffle.enterRaffle{value: entranceFee * players2.length}(players2);
+    gasAfter = gasleft();
+    uint256 gasCostSecond = (gasBefore - gasAfter) * tx.gasprice;
+
+    console2.log(gasCostFirst);
+    console2.log(gasCostSecond);
+
+    // 2nd player should pay more gas than 1st player
+    assertTrue(gasCostSecond > gasCostFirst);
+}
 ```
+
 </details>
 
-**Recommended Mitigation:** 
+**Recommended Mitigation:**
 
 1. Consider allowing duplicates. Users can make new wallet addresses anyways, so a duplicate check doesn't prevent the same person from entering multiple times, only the same wallet address.
 2. Use a mapping to keep track of players who have already entered the raffle. This will allow you to check for duplicates without looping through the entire `players` array. Time complexity of a mapping lookup is O(1), while looping through an array is O(n).
@@ -336,14 +517,14 @@ Paste the following test into `PuppyRaffleTest.t.sol`
         require(msg.value == entranceFee * newPlayers.length, "PuppyRaffle: Must send enough to enter raffle");
         for (uint256 i = 0; i < newPlayers.length; i++) {
             players.push(newPlayers[i]);
-+            addressToRaffleId[newPlayers[i]] = raffleId;            
++            addressToRaffleId[newPlayers[i]] = raffleId;
         }
 
 -        // Check for duplicates
 +       // Check for duplicates only from the new players
 +       for (uint256 i = 0; i < newPlayers.length; i++) {
 +          require(addressToRaffleId[newPlayers[i]] != raffleId, "PuppyRaffle: Duplicate player");
-+       }    
++       }
 -        for (uint256 i = 0; i < players.length; i++) {
 -            for (uint256 j = i + 1; j < players.length; j++) {
 -                require(players[i] != players[j], "PuppyRaffle: Duplicate player");
@@ -363,7 +544,7 @@ Alternatively, you could use OpenZeppelin's [EnumerableSet](https://docs.openzep
 
 ### [M-2] Unsafe cast of `PuppyRaffle::fee` loses fees
 
-**Description:** In `PuppyRaffle::selectWinner` their is a type cast of a `uint256` to a `uint64`. This is an unsafe cast, and if the `uint256` is larger than `type(uint64).max`, the value will be truncated. 
+**Description:** In `PuppyRaffle::selectWinner` their is a type cast of a `uint256` to a `uint64`. This is an unsafe cast, and if the `uint256` is larger than `type(uint64).max`, the value will be truncated.
 
 ```javascript
     function selectWinner() external {
@@ -380,11 +561,11 @@ Alternatively, you could use OpenZeppelin's [EnumerableSet](https://docs.openzep
     }
 ```
 
-The max value of a `uint64` is `18446744073709551615`. In terms of ETH, this is only ~`18` ETH. Meaning, if more than 18ETH of fees are collected, the `fee` casting will truncate the value. 
+The max value of a `uint64` is `18446744073709551615`. In terms of ETH, this is only ~`18` ETH. Meaning, if more than 18ETH of fees are collected, the `fee` casting will truncate the value.
 
 **Impact:** This means the `feeAddress` will not collect the correct amount of fees, leaving fees permanently stuck in the contract.
 
-**Proof of Concept:** 
+**Proof of Concept:**
 
 1. A raffle proceeds with a little more than 18 ETH worth of fees collected
 2. The line that casts the `fee` as a `uint64` hits
@@ -404,7 +585,8 @@ uint64(fee)
 ```javascript
 // We do some storage packing to save gas
 ```
-But the potential gas saved isn't worth it if we have to recast and this bug exists. 
+
+But the potential gas saved isn't worth it if we have to recast and this bug exists.
 
 ```diff
 -   uint64 public totalFees = 0;
@@ -445,7 +627,6 @@ Also, true winners would not get their prize money, and someone else could take 
 
 1. Do not allow smart contract wallets as players (not recommended).
 2. Create a mapping from player addresses to price amount, so winners can pull their funds out themselves. Making the winner responsible for claiming their prize money. This follows Pull over Push pattern (recommended).
-
 
 ### [M-4] A raffle winner can be a zero address (after the refund), which will revert the transaction when trying to transfer fund in `PuppyRaffle::selectWinner``, thus preventing the raffle from ending.
 
@@ -491,9 +672,10 @@ function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
     puppyRaffle.selectWinner();
 }
 ```
+
 </details>
 
-**Recommended Mitigation:**  Consider checking for zero address after assigning the winner but before sending the prize pool to the winner. This will prevent the `PuppyRaffle::selectWinner` function from reverting.
+**Recommended Mitigation:** Consider checking for zero address after assigning the winner but before sending the prize pool to the winner. This will prevent the `PuppyRaffle::selectWinner` function from reverting.
 
 ```diff
     function selectWinner() external {
@@ -503,6 +685,31 @@ function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
         address winner = players[winnerIndex];
 +       require(winner != address(0), "PuppyRaffle: Winner is zero address");
 ```
+
+Better approach is to remove the player from `players` array after `refund` is called, this would ensure that there are no zero addresses in `players` array (reccomended).
+
+```diff
+    function refund(uint256 playerIndex) public {
+        address playerAddress = players[playerIndex];
+        require(
+            playerAddress == msg.sender,
+            "PuppyRaffle: Only the player can refund"
+        );
+        require(
+            playerAddress != address(0),
+            "PuppyRaffle: Player already refunded, or is not active"
+        );
+
+        payable(msg.sender).sendValue(entranceFee);
+
+-       players[playerIndex] = address(0);
++       players[playerIndex] = players[players.length - 1];
++       players.pop();
+
+        emit RaffleRefunded(playerAddress);
+    }
+```
+
 # Low Severity
 
 ### [L-1] `PuppyRaffle::getActivePlayerIndex` returns `0` for non-existent players, which is the same as the index for the first player in the `players` array, causing a player at the index `0` to incorrectly think they have not entered the raffle
@@ -539,28 +746,30 @@ function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
 
 **Description:** Contracts should be deployed with the same compiler version and flags that they have been tested the most with. Locking the pragma helps ensure that contracts do not accidentally get deployed using, for example, the latest compiler which may have higher risks of undiscovered bugs.
 
-**Recommended Mitigation:** 
+**Recommended Mitigation:**
 Consider using a specific version of Solidity in your contracts instead of a wide version. For example, instead of `pragma solidity ^0.8.0;`, use `pragma solidity 0.8.0;`
 
-- Found in src/PuppyRaffle.sol [Line: 2](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L2)
+-   Found in src/PuppyRaffle.sol [Line: 2](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L2)
 
-	```javascript
-	pragma solidity ^0.7.6;
-	```
+    ```javascript
+    pragma solidity ^0.7.6;
+    ```
 
 ### [I-2]: Using an outdated version of Solidity is not recommended
 
 **Description:** solc frequently releases new compiler versions. Using an old version prevents access to new Solidity security checks.
 
 **Recommended Mitigation:** Deploy with any of the following Solidity versions:
-- `0.8.18`
+
+-   `0.8.18`
 
 The recommendations take into account:
-- Risks related to recent releases
-- Risks of complex code generation changes
-- Risks of new language features
-- Risks of known bugs
-Use a simple pragma version that allows any of these versions. Consider using the latest version of Solidity for testing.
+
+-   Risks related to recent releases
+-   Risks of complex code generation changes
+-   Risks of new language features
+-   Risks of known bugs
+    Use a simple pragma version that allows any of these versions. Consider using the latest version of Solidity for testing.
 
 For more information, see the [Slither](https://github.com/crytic/slither/wiki/Detector-Documentation#incorrect-versions-of-solidity).
 
@@ -574,24 +783,25 @@ For more information, see the [Slither](https://github.com/crytic/slither/wiki/D
 
 **Description:** Assigning values to address state variables without checking for `address(0)`. This can lead to unexpected behavior if the address is `address(0)`.
 
-- Found in src/PuppyRaffle.sol [Line: 62](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L62)
+-   Found in src/PuppyRaffle.sol [Line: 62](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L62)
 
-	```javascript
-	feeAddress = _feeAddress;
-	```
+    ```javascript
+    feeAddress = _feeAddress;
+    ```
 
-- Found in src/PuppyRaffle.sol [Line: 150](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L150)
+-   Found in src/PuppyRaffle.sol [Line: 150](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L150)
 
-	```javascript
-	previousWinner = winner;
-	```
+    ```javascript
+    previousWinner = winner;
+    ```
 
-- Found in src/PuppyRaffle.sol [Line: 168](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L168)
+-   Found in src/PuppyRaffle.sol [Line: 168](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L168)
 
-	```javascript
-	feeAddress = newFeeAddress;
-	```
-**Recommended Mitigation:** Consider checking for `address(0)` before assigning values to address state variables. Or add the modifier `nonZeroAddress` to the state variable declaration.
+        ```javascript
+        feeAddress = newFeeAddress;
+        ```
+
+    **Recommended Mitigation:** Consider checking for `address(0)` before assigning values to address state variables. Or add the modifier `nonZeroAddress` to the state variable declaration.
 
 ```javascript
 modifier nonZeroAddress(address _address) {
@@ -604,19 +814,19 @@ modifier nonZeroAddress(address _address) {
 
 ### [I-5]: Missing checks for `0` when assigning values to uint state variables
 
-**Description:** Assigning values to uint state variables without checking for `0`. This can lead to unexpected behavior if the value is `0`. 
+**Description:** Assigning values to uint state variables without checking for `0`. This can lead to unexpected behavior if the value is `0`.
 
-- Found in src/PuppyRaffle.sol [Line: 61](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L61)
+-   Found in src/PuppyRaffle.sol [Line: 61](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L61)
 
-	```javascript
-	entranceFee = _entranceFee;
-	```
+    ```javascript
+    entranceFee = _entranceFee;
+    ```
 
-- Found in src/PuppyRaffle.sol [Line: 63](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L63)
+-   Found in src/PuppyRaffle.sol [Line: 63](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L63)
 
-	```javascript
-	raffleDuration = _raffleDuration;
-	```
+    ```javascript
+    raffleDuration = _raffleDuration;
+    ```
 
 **Recommended Mitigation:** Consider checking for `0` value before assigning values to uint state variables. Or add the modifier `nonZeroNumber` to the state variable declaration.
 
@@ -633,11 +843,11 @@ modifier nonZeroNumber(uint256 _number) {
 
 **Description:** Functions that take an array as a parameter should check for an empty array `[]`. This can lead to unexpected behavior if the array is empty.
 
-- Found in src/PuppyRaffle.sol [Line: 79](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L79)
+-   Found in src/PuppyRaffle.sol [Line: 79](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L79)
 
-	```javascript
-	function enterRaffle(address[] memory newPlayers) public payable {
-	```
+    ```javascript
+    function enterRaffle(address[] memory newPlayers) public payable {
+    ```
 
 **Recommended Mitigation:** Consider checking for empty array `[]` before assigning values to array state variables. Or add the modifier `nonEmptyArray` to the function parameter declaration.
 
@@ -657,7 +867,7 @@ modifier nonEmptyArray(address[] memory _array) {
 **Recommended Mitigation:** Move the `_safeMint` function call to the top of the function, and move the `winner.call` function call to the bottom of the function. Firstly end effects, then interactions.
 
 ```diff
-+   _safeMint(winner, tokenId);    
++   _safeMint(winner, tokenId);
 
     (bool success, ) = winner.call{value: prizePool}("");
     require(success, "PuppyRaffle: Failed to send prize pool to winner");
@@ -675,7 +885,7 @@ modifier nonEmptyArray(address[] memory _array) {
 @>      uint256 fee = (totalAmountCollected * 20) / 100;
 ```
 
-**Recommended Mitigation:**  Consider declaring these numbers as constant variables ot the top of the contract and use them in the code.
+**Recommended Mitigation:** Consider declaring these numbers as constant variables ot the top of the contract and use them in the code.
 
 ```diff
 +       uint256 public constant PRIZE_POOL_PERCENTAGE = 80;
@@ -722,18 +932,20 @@ modifier nonEmptyArray(address[] memory _array) {
 **Description:** Multiple state variables are not changed after initialization. These variables should be declared as constant or immutable to prevent accidental changes. Reading from constant or immutable variables is cheaper than reading from state variables.
 
 Instances of this issue are:
-- `PuppyRaffle::entranceFee`
-- `PuppyRaffle::raffleDuration`
-- `PuppyRaffle::commonImageUri`
-- `PuppyRaffle::rareImageUri`
-- `PuppyRaffle::legendaryImageUri`
+
+-   `PuppyRaffle::entranceFee`
+-   `PuppyRaffle::raffleDuration`
+-   `PuppyRaffle::commonImageUri`
+-   `PuppyRaffle::rareImageUri`
+-   `PuppyRaffle::legendaryImageUri`
 
 **Recommended Mitigation:** Consider declaring these variables as constant or immutable.
-- `PuppyRaffle::entranceFee` as `immutable`
-- `PuppyRaffle::raffleDuration` as `immutable`
-- `PuppyRaffle::commonImageUri` as `constant`
-- `PuppyRaffle::rareImageUri` as `constant`
-- `PuppyRaffle::legendaryImageUri` as `constant`
+
+-   `PuppyRaffle::entranceFee` as `immutable`
+-   `PuppyRaffle::raffleDuration` as `immutable`
+-   `PuppyRaffle::commonImageUri` as `constant`
+-   `PuppyRaffle::rareImageUri` as `constant`
+-   `PuppyRaffle::legendaryImageUri` as `constant`
 
 ### [G-2]: Initializing state variables to their default value is redundant
 
@@ -745,17 +957,17 @@ Instances of this issue are:
 
 **Description:** Functions that are not used internally could be marked external. This reduces the gas cost of the function call.
 
-- Found in src/PuppyRaffle.sol [Line: 79](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L79)
+-   Found in src/PuppyRaffle.sol [Line: 79](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L79)
 
-	```javascript
-	function enterRaffle(address[] memory newPlayers) public payable {
-	```
+    ```javascript
+    function enterRaffle(address[] memory newPlayers) public payable {
+    ```
 
-- Found in src/PuppyRaffle.sol [Line: 96](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L96)
+-   Found in src/PuppyRaffle.sol [Line: 96](https://github.com/Cyfrin/4-puppy-raffle-audit/blob/2a47715b30cf11ca82db148704e67652ad679cd8/src/PuppyRaffle.sol#L96)
 
-	```javascript
-	function refund(uint256 playerIndex) public {
-	```
+    ```javascript
+    function refund(uint256 playerIndex) public {
+    ```
 
 **Recommended Mitigation:** Consider marking these functions as `external` instead of `public`.
 
@@ -778,6 +990,7 @@ Instances of this issue are:
         }
     }
 ```
+
 ### [G-5]: `PuppyRaffle::_isActivePlayer` function is not used anywhere
 
 **Description:** The `PuppyRaffle::_isActivePlayer` function is declared in the contract, but it is not used anywhere. This is a waste of gas.
@@ -801,7 +1014,7 @@ Instances of this issue are:
     }
 ```
 
-**Recommended Mitigation:**  Replace the `players.length` in the loop to a variable `playersLength` that is cached in memory before the loop.
+**Recommended Mitigation:** Replace the `players.length` in the loop to a variable `playersLength` that is cached in memory before the loop.
 
 ```diff
 +   uint256 playersLength = players.length;
@@ -813,3 +1026,39 @@ Instances of this issue are:
     }
 ```
 
+### [G-7]: `PuppyRaffle::withdrawFees` function might try to transfer `totalFees` even if it is zero
+
+**Description:** If no players have entered the raffle, anyone can call withdrawFees and try to transfer `totalFees`. This will not fail if `totalFees` is zero, but it will still cost gas to transfer the funds.
+
+```javascript
+    function withdrawFees() external {
+        require(
+            address(this).balance == uint256(totalFees),
+            "PuppyRaffle: There are currently players active!"
+        );
+        uint256 feesToWithdraw = totalFees;
+        totalFees = 0;
+
+@>      (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
+        require(success, "PuppyRaffle: Failed to withdraw fees");
+    }
+```
+
+**Recommended Mitigation:** Add a check for `totalFees` before trying to transfer the funds. If amount is zero, simply revert the transaction.
+
+```diff
+    function withdrawFees() external {
+        require(
+            address(this).balance == uint256(totalFees),
+            "PuppyRaffle: There are currently players active!"
+        );
++       require(
++           totalFees > 0, "PuppyRaffle: No fees to withdraw"
++       )
+
+        uint256 feesToWithdraw = totalFees;
+        totalFees = 0;
+        (bool success, ) = feeAddress.call{value: feesToWithdraw}("");
+        require(success, "PuppyRaffle: Failed to withdraw fees");
+    }
+```

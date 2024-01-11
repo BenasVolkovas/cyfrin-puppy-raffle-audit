@@ -5,6 +5,7 @@ pragma experimental ABIEncoderV2;
 import {Test, console2} from "forge-std/Test.sol";
 import {PuppyRaffle} from "../src/PuppyRaffle.sol";
 import {ReentrancyAttacker} from "./mocks/ReentrancyAttacker.sol";
+import {SelfDestructAttacker} from "./mocks/SelfDestructAttacker.sol";
 
 contract PuppyRaffleTest is Test {
     PuppyRaffle puppyRaffle;
@@ -245,10 +246,17 @@ contract PuppyRaffleTest is Test {
         console2.log(gasCostSecond);
 
         // 2nd player should pay more gas than 1st player
-        assertGt(gasCostSecond, gasCostFirst, "2nd player should pay more gas than 1st player");
+        assertGt(
+            gasCostSecond,
+            gasCostFirst,
+            "2nd player should pay more gas than 1st player"
+        );
     }
 
-    function test_audit_refund_ExploitableWithReentrancy() public playersEntered {
+    function test_audit_refund_ExploitableWithReentrancy()
+        public
+        playersEntered
+    {
         ReentrancyAttacker attacker = new ReentrancyAttacker(puppyRaffle);
         address attackUser = makeAddr("attackUser");
         vm.deal(attackUser, 1 ether);
@@ -256,8 +264,14 @@ contract PuppyRaffleTest is Test {
         uint256 startingAttackerContractBalance = address(attacker).balance;
         uint256 startingPuppyRaffleBalance = address(puppyRaffle).balance;
 
-        console2.log("Starting attacker contract balance: ", startingAttackerContractBalance);
-        console2.log("Starting PuppyRaffle balance: ", startingPuppyRaffleBalance);
+        console2.log(
+            "Starting attacker contract balance: ",
+            startingAttackerContractBalance
+        );
+        console2.log(
+            "Starting PuppyRaffle balance: ",
+            startingPuppyRaffleBalance
+        );
 
         // Attack
         vm.prank(attackUser);
@@ -266,10 +280,17 @@ contract PuppyRaffleTest is Test {
         uint256 endingAttackerContractBalance = address(attacker).balance;
         uint256 endingPuppyRaffleBalance = address(puppyRaffle).balance;
 
-        console2.log("Ending attacker contract balance: ", endingAttackerContractBalance);
+        console2.log(
+            "Ending attacker contract balance: ",
+            endingAttackerContractBalance
+        );
         console2.log("Ending PuppyRaffle balance: ", endingPuppyRaffleBalance);
 
-        assertEq(endingAttackerContractBalance - entranceFee, startingPuppyRaffleBalance, "Attacker contract balance should be equal to starting PuppyRaffle balance");
+        assertEq(
+            endingAttackerContractBalance - entranceFee,
+            startingPuppyRaffleBalance,
+            "Attacker contract balance should be equal to starting PuppyRaffle balance"
+        );
     }
 
     function test_audit_selectWinner_TotalFeeVariableOverflows() public {
@@ -283,7 +304,7 @@ contract PuppyRaffleTest is Test {
         skip(duration + 1 minutes);
         puppyRaffle.selectWinner();
         uint256 startingTotalFees = puppyRaffle.totalFees();
- 
+
         playersNum = 4;
         players = new address[](playersNum);
         for (uint256 i; i < playersNum; i++) {
@@ -294,7 +315,11 @@ contract PuppyRaffleTest is Test {
         puppyRaffle.selectWinner();
         uint256 endingTotalFees = puppyRaffle.totalFees();
 
-        assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
+        assertGt(
+            startingTotalFees,
+            endingTotalFees,
+            "Total fees should be greater after 50 players"
+        );
     }
 
     function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
@@ -319,18 +344,25 @@ contract PuppyRaffleTest is Test {
         puppyRaffle.selectWinner();
     }
 
-    function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly() public {
+    function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly()
+        public
+    {
+        // Setup
         uint256 expectedWinnerIndex = 1;
         uint256 playersNum = 8;
         address[] memory players = new address[](playersNum);
         for (uint256 i; i < playersNum; i++) {
             players[i] = address(i + 1);
         }
+
+        // 8 players enter the raffle with 1 ETH each
         puppyRaffle.enterRaffle{value: entranceFee * playersNum}(players);
 
+        // Player with index 0 calls the `refund` function
         vm.prank(players[0]);
         puppyRaffle.refund(0);
 
+        // Duration of the raffle passes
         skip(duration + 1 minutes);
         uint256 winnerIndex = uint256(
             keccak256(
@@ -339,9 +371,55 @@ contract PuppyRaffleTest is Test {
         ) % playersNum;
         assertEq(winnerIndex, expectedWinnerIndex);
 
+        uint256 winnerStartingBalance = players[winnerIndex].balance;
+
+        // Player with index 1 calls the `selectWinner` function
+        vm.prank(playerOne);
+        puppyRaffle.selectWinner();
+        uint256 winnerEndingBalance = players[winnerIndex].balance;
+        uint256 winnerReward = winnerEndingBalance - winnerStartingBalance;
+
+        uint256 entranceFeeForWinner = (entranceFee * 80) / 100;
+        uint256 expectedWinnerPayout = entranceFeeForWinner * (playersNum - 1);
+        uint256 totalFees = uint256(puppyRaffle.totalFees());
+
+        // Assert winner reward
+        console2.log("Winner reward: ", winnerReward);
+        console2.log("Expected winner payout: ", expectedWinnerPayout);
+        assertEq(winnerReward, expectedWinnerPayout + entranceFeeForWinner);
+
+        // Assert total fees
+        console2.log("Total fees: ", totalFees);
+        console2.log("PuppyRaffle balance: ", address(puppyRaffle).balance);
+        assertEq(totalFees, address(puppyRaffle).balance + entranceFee);
+    }
+
+    function test_audit_withdrawFees_AlwaysRevertsIfSelfdesctructTransferredFunds()
+        public
+        playersEntered
+    {
+        skip(duration + 1 minutes);
         vm.prank(playerOne);
         puppyRaffle.selectWinner();
 
-        assertEq(puppyRaffle.totalFees() - entranceFee, address(puppyRaffle).balance);
+        SelfDestructAttacker attacker = new SelfDestructAttacker{
+            value: 1 ether
+        }(address(puppyRaffle));
+
+        // Withdraw fees
+        vm.expectRevert("PuppyRaffle: There are currently players active!");
+        puppyRaffle.withdrawFees();
+    }
+
+    function test_audit_withdrawFees_TransfersZeroAmount() public {
+        uint256 startingFeeAddressBalance = address(feeAddress).balance;
+        puppyRaffle.withdrawFees();
+        uint256 endingFeeAddressBalance = address(feeAddress).balance;
+
+        assertEq(
+            startingFeeAddressBalance,
+            endingFeeAddressBalance,
+            "Fee address balance should not change"
+        );
     }
 }
