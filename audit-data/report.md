@@ -6,9 +6,6 @@ Lead Auditors:
 
 # Table of Contents
 
-<details>
-<summary>See table</summary>
-
 - [Puppy Raffle Audit Report](#puppy-raffle-audit-report)
 - [Table of Contents](#table-of-contents)
 - [Disclaimer](#disclaimer)
@@ -43,9 +40,9 @@ Lead Auditors:
     - [\[I-6\]: Missing checks for empty array `[]` for function parameters](#i-6-missing-checks-for-empty-array--for-function-parameters)
     - [\[I-7\]: `PuppyRaffle::selectWinnter` should follow CEI (Checks-Effects-Interactions) pattern](#i-7-puppyraffleselectwinnter-should-follow-cei-checks-effects-interactions-pattern)
     - [\[I-8\] Use of "magic" numbers is not recommended](#i-8-use-of-magic-numbers-is-not-recommended)
+- [Gas Optimization](#gas-optimization)
     - [\[I-9\] `PuppyRaffle::previousWinner` variable is not used anywhere](#i-9-puppyrafflepreviouswinner-variable-is-not-used-anywhere)
     - [\[I-10\] State changes are not emitting events](#i-10-state-changes-are-not-emitting-events)
-- [Gas Optimization](#gas-optimization)
     - [\[G-1\]: Unchanged state variables should be constant or immutable](#g-1-unchanged-state-variables-should-be-constant-or-immutable)
     - [\[G-2\]: Initializing state variables to their default value is redundant](#g-2-initializing-state-variables-to-their-default-value-is-redundant)
     - [\[G-3\]: Functions not used internally could be marked external](#g-3-functions-not-used-internally-could-be-marked-external)
@@ -53,8 +50,6 @@ Lead Auditors:
     - [\[G-5\]: `PuppyRaffle::_isActivePlayer` function is not used anywhere](#g-5-puppyraffle_isactiveplayer-function-is-not-used-anywhere)
     - [\[G-6\]: `PuppyRaffle::getActivePlayerIndex` function reads from storage in a loop without caching the value in memory](#g-6-puppyrafflegetactiveplayerindex-function-reads-from-storage-in-a-loop-without-caching-the-value-in-memory)
     - [\[G-7\]: `PuppyRaffle::withdrawFees` function might try to transfer `totalFees` even if it is zero](#g-7-puppyrafflewithdrawfees-function-might-try-to-transfer-totalfees-even-if-it-is-zero)
-
-</details>
 
 # Disclaimer
 
@@ -143,8 +138,7 @@ A player who has entered the raffle could be a milicious contract that has a `re
 3. Attacker enters the raffle
 4. Attacker calls the `PuppyRaffle::refund` function from their contract, draining the contract balance
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -215,8 +209,6 @@ contract ReentrancyAttacker {
     }
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** To prevent this, set the `players` array before making the external call to `sendValue`. This will prevent the attacker from calling the `PuppyRaffle::refund` function again. This follows the Checks-Effects-Interactions pattern.
 
@@ -310,8 +302,7 @@ function refund(uint256 playerIndex) public {
     ```
 4. Because of the `PuppyRaffle::withdrawFees` function, `feeAddress` will not be able to receive `totalFees`.
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -341,8 +332,6 @@ function test_audit_selectWinner_TotalFeeVariableOverflows() public {
     assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** There are a few ways to prevent this:
 
@@ -378,8 +367,7 @@ function test_audit_selectWinner_TotalFeeVariableOverflows() public {
 5. Winner receives 6.4 ETH instead of 5.6 ETH
 6. Total fees will be 1.6 ETH even though the balance of the contract is 0.6 ETH
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -433,8 +421,6 @@ function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly()
     assertEq(totalFees, address(puppyRaffle).balance + entranceFee);
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** There are a few ways to prevent this:
 
@@ -498,8 +484,7 @@ function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly()
 4. Attacker deploys a contract and calls `selfdestruct` function
 5. Player with index 1 calls the `withdrawFees` function, but it reverts
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -520,8 +505,6 @@ function test_audit_withdrawFees_AlwaysRevertsIfSelfdesctructTransferredFunds()
     puppyRaffle.withdrawFees();
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** Remove the balance check from `PuppyRaffle:withdrawFees` function. This will allow to always withdraw the fees all the time.
 
@@ -568,8 +551,7 @@ If we have 2 sets of 100 players enter, the gas costs will be as such:
 
 This is almost a 3x increase in gas costs for the 2nd set of players.
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -608,8 +590,6 @@ function test_audit_enterRaffle_DenialOfService() public {
     assertTrue(gasCostSecond > gasCostFirst);
 }
 ```
-
-</details>
 
 **Recommended Mitigation:**
 
@@ -754,8 +734,7 @@ Users could easily call the `selectWinner` function again, but it would cost add
 5. Zero address is chosen as the winner.
 6. The smart contract tries to transfer fund to the zero address, which reverts the transaction.
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -781,8 +760,6 @@ function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
     puppyRaffle.selectWinner();
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** Consider checking for zero address after assigning the winner but before sending the prize pool to the winner. This will prevent the `PuppyRaffle::selectWinner` function from reverting.
 
@@ -1010,6 +987,8 @@ modifier nonEmptyArray(address[] memory _array) {
 +       uint256 fee = (totalAmountCollected * FEE_PERCENTAGE) / PERCENTAGE_DIVISOR;
 ```
 
+# Gas Optimization
+
 ### [I-9] `PuppyRaffle::previousWinner` variable is not used anywhere
 
 **Description:** The `PuppyRaffle::previousWinner` variable is declared in the contract as state variable. It is assigned a value in the `PuppyRaffle::selectWinner` function, but it is not used anywhere else in the contract. This is a waste of gas.
@@ -1033,8 +1012,6 @@ modifier nonEmptyArray(address[] memory _array) {
 **Description:** State changes are not emitting events. This makes it difficult to track the state changes of the contract.
 
 **Recommended Mitigation:** Consider emitting events for state changes.
-
-# Gas Optimization
 
 ### [G-1]: Unchanged state variables should be constant or immutable
 

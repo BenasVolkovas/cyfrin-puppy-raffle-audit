@@ -34,8 +34,7 @@ A player who has entered the raffle could be a milicious contract that has a `re
 3. Attacker enters the raffle
 4. Attacker calls the `PuppyRaffle::refund` function from their contract, draining the contract balance
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -106,8 +105,6 @@ contract ReentrancyAttacker {
     }
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** To prevent this, set the `players` array before making the external call to `sendValue`. This will prevent the attacker from calling the `PuppyRaffle::refund` function again. This follows the Checks-Effects-Interactions pattern.
 
@@ -201,8 +198,7 @@ function refund(uint256 playerIndex) public {
     ```
 4. Because of the `PuppyRaffle::withdrawFees` function, `feeAddress` will not be able to receive `totalFees`.
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -232,8 +228,6 @@ function test_audit_selectWinner_TotalFeeVariableOverflows() public {
     assertGt(startingTotalFees, endingTotalFees, "Total fees should be greater after 50 players");
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** There are a few ways to prevent this:
 
@@ -269,8 +263,7 @@ function test_audit_selectWinner_TotalFeeVariableOverflows() public {
 5. Winner receives 6.4 ETH instead of 5.6 ETH
 6. Total fees will be 1.6 ETH even though the balance of the contract is 0.6 ETH
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -324,8 +317,6 @@ function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly()
     assertEq(totalFees, address(puppyRaffle).balance + entranceFee);
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** There are a few ways to prevent this:
 
@@ -389,8 +380,7 @@ function test_audit_selectWinner_CalculatesTotalFundsAmountIncorrectly()
 4. Attacker deploys a contract and calls `selfdestruct` function
 5. Player with index 1 calls the `withdrawFees` function, but it reverts
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -411,8 +401,6 @@ function test_audit_withdrawFees_AlwaysRevertsIfSelfdesctructTransferredFunds()
     puppyRaffle.withdrawFees();
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** Remove the balance check from `PuppyRaffle:withdrawFees` function. This will allow to always withdraw the fees all the time.
 
@@ -459,8 +447,7 @@ If we have 2 sets of 100 players enter, the gas costs will be as such:
 
 This is almost a 3x increase in gas costs for the 2nd set of players.
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -499,8 +486,6 @@ function test_audit_enterRaffle_DenialOfService() public {
     assertTrue(gasCostSecond > gasCostFirst);
 }
 ```
-
-</details>
 
 **Recommended Mitigation:**
 
@@ -645,8 +630,7 @@ Users could easily call the `selectWinner` function again, but it would cost add
 5. Zero address is chosen as the winner.
 6. The smart contract tries to transfer fund to the zero address, which reverts the transaction.
 
-<details>
-<summary>POC code</summary>
+POC code
 Paste the following test into `PuppyRaffleTest.t.sol`
 
 ```javascript
@@ -672,8 +656,6 @@ function test_audit_selectWinner_SelectsZeroAddressAsWinner() public {
     puppyRaffle.selectWinner();
 }
 ```
-
-</details>
 
 **Recommended Mitigation:** Consider checking for zero address after assigning the winner but before sending the prize pool to the winner. This will prevent the `PuppyRaffle::selectWinner` function from reverting.
 
